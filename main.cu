@@ -42,7 +42,7 @@ float const sobelXFilterFactor = (float) 1.0;
 int const laplacian1Filter[] = {  -1,  -4,  -1,
                                  -4,  20,  -4,
                                  -1,  -4,  -1};
-
+int const laplacian1filterDim=3;
 float const laplacian1FilterFactor = (float) 1.0;
 
 int const laplacian2Filter[] = { 0,  1,  0,
@@ -72,20 +72,24 @@ __global__ void applyFilter(unsigned char *in, unsigned char *out, unsigned int 
   unsigned int const filterCenter = (filterDim / 2);
 
   __shared__ unsigned char st[BLOCKX*BLOCKY];
+  __shared__ int kerneld[laplacian1filterDim*laplacian1filterDim];
+
   int i = blockIdx.x*BLOCKX+threadIdx.x;
   int j = blockIdx.y*BLOCKY + threadIdx.y;
 
 
   if(i>0&&i<XSIZE&&j>0&&j<YSIZE)
   {
-    if(threadIdx.x==0&&threadIdx.y==0)
-    {
-      for(int t=0;t<BLOCKX*BLOCKY;t++)
-      {
-        st[t]=in[PIXEL(i,j)+t];
-      }
-    }
-     __syncthreads();
+        int threadsum=threadIdx.x+threadIdx.y*BLOCKX;
+        if(threadsum<filterDim*filterDim)
+        {
+          kerneld[threadsum]=filter[threadsum];
+        }
+        __syncthreads();
+        st[threadsum]=in[PIXEL(i,j)];
+        __syncthreads();
+
+
      int aggregate =0;
      for (unsigned int ky = 0; ky < filterDim; ky++) {
         int nky = filterDim - 1 - ky;
@@ -94,10 +98,10 @@ __global__ void applyFilter(unsigned char *in, unsigned char *out, unsigned int 
 
           int yy = threadIdx.y + (ky - filterCenter);
           int xx = threadIdx.x + (kx - filterCenter);
-          int mod= filter[nky * filterDim + nkx];
+          int mod= kerneld[nky * filterDim + nkx];
           if (xx >= 0 && xx < BLOCKX && yy >=0 && yy < BLOCKY)
           {
-            aggregate += st[threadIdx.x+threadIdx.y*BLOCKY] * mod;
+            aggregate += st[xx+yy*BLOCKX] * mod;
           }
           else
           {
@@ -115,19 +119,21 @@ __global__ void applyFilter(unsigned char *in, unsigned char *out, unsigned int 
       } else {
         out[PIXEL(i,j)] = 0;
       }
+
   }
 
 }
+
 __global__ void applyFilterNormal(unsigned char *in, unsigned char *out, unsigned int XSIZE, unsigned int YSIZE, int *filter, unsigned int filterDim, float filterFactor) {
   unsigned int const filterCenter = (filterDim / 2);
 
-  __shared__ unsigned char st[BLOCKX*BLOCKY];
   int i = blockIdx.x*BLOCKX+threadIdx.x;
   int j = blockIdx.y*BLOCKY + threadIdx.y;
 
   if(i>0&&i<XSIZE&&j>0&&j<YSIZE)
   {
      int aggregate =0;
+
      for (unsigned int ky = 0; ky < filterDim; ky++) {
         int nky = filterDim - 1 - ky;
         for (unsigned int kx = 0; kx < filterDim; kx++) {
